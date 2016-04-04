@@ -333,3 +333,52 @@ void uv_free_interface_addresses(uv_interface_address_t* addresses,
 
   uv__free(addresses);
 }
+
+
+int uv_get_children_pid(pid_t ppid, uint32_t** p_ar_ptr, int* p_ar_len_ptr) {
+  char *buf = malloc(sizeof(*buf) * 1024);
+  size_t len = 255;
+  char command[256] = {0};
+  FILE *fp;
+  uint32_t* temp = uv__malloc(0);
+  *p_ar_ptr = NULL;
+
+  *p_ar_len_ptr = 0;
+
+  sprintf(command,"pgrep -P %u",ppid);
+  fp = (FILE*)popen(command,"r");
+
+  while(getline(&buf, &len, fp) >= 0) {
+    /* realloc malloc(0) to get the actual array */
+    uv__realloc(temp, (*p_ar_len_ptr + 1) * sizeof(uint32_t));
+
+    temp[*p_ar_len_ptr] = atoi(buf);
+    (*p_ar_len_ptr)++;
+  }
+
+  *p_ar_ptr = temp;
+
+  uv__free(buf);
+  pclose(fp);
+  return 0;
+}
+
+
+uint32_t uv_get_children_count(pid_t ppid, int* p_ar_len_ptr) {
+  char *buf = malloc(sizeof(*buf) * 1024);
+  size_t len = 255;
+  char command[256] = {0};
+  FILE *fp;
+
+  *p_ar_len_ptr = 0;
+
+  sprintf(command,"pgrep -P %u",ppid);
+  fp = (FILE*)popen(command,"r");
+  while(getline(&buf, &len, fp) >= 0) {
+    (*p_ar_len_ptr)++;
+  }
+
+  uv__free(buf);
+  pclose(fp);
+  return 0;
+}

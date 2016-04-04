@@ -26,6 +26,7 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#include <tchar.h>
 
 #include "uv.h"
 #include "internal.h"
@@ -53,6 +54,31 @@
 
 /* The number of nanoseconds in one second. */
 #define UV__NANOSEC 1000000000
+
+
+void printError( TCHAR* msg )
+{
+  DWORD eNum;
+  TCHAR sysMsg[256];
+  TCHAR* p;
+
+  eNum = GetLastError( );
+  FormatMessage( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+         NULL, eNum,
+         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
+         sysMsg, 256, NULL );
+
+  // Trim the end of the line and terminate it with a null
+  p = sysMsg;
+  while( ( *p > 31 ) || ( *p == 9 ) )
+    ++p;
+  do { *p-- = 0; } while( ( p >= sysMsg ) &&
+                          ( ( *p == '.' ) || ( *p < 33 ) ) );
+
+  // Display the message
+  _tprintf( TEXT("\n  WARNING: %s failed with error %d (%s)"), msg, eNum, sysMsg );
+}
+
 
 
 /* Cached copy of the process title, plus a mutex guarding it. */
@@ -1150,6 +1176,81 @@ int uv_getrusage(uv_rusage_t *uv_rusage) {
   return 0;
 }
 
+uint32_t *uv_get_children_pid(DWORD ppid, int count) {
+  HANDLE hProcessSnap;
+  HANDLE hProcess;
+  PROCESSENTRY32 pe32;
+  DWORD dwPriorityClass;
+  int ret[10];
+  int retCount = 0;
+  DWORD root = GetCurrentProcessId();
+
+  // Take a snapshot of all processes in the system.
+  hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if(hProcessSnap == INVALID_HANDLE_VALUE) {
+    printError(TEXT("CreateToolhelp32Snapshot (of processes)"));
+    return(FALSE);
+  }
+
+  // Set the size of the structure before using it.
+  pe32.dwSize = sizeof(PROCESSENTRY32);
+
+  // Retrieve information about the first process,
+  // and exit if unsuccessful
+  if(!Process32First( hProcessSnap, &pe32)) {
+    printError(TEXT("Process32First"));
+    CloseHandle(hProcessSnap);
+    return(FALSE);
+  }
+
+  // Now walk the snapshot of processes, and
+  // display information about each process in turn
+  do
+  {
+    _tprintf( TEXT("\n\n=====================================================" ));
+    _tprintf( TEXT("\nPROCESS NAME:  %s"), pe32.szExeFile );
+    _tprintf( TEXT("\n-------------------------------------------------------" ));
+
+    // Retrieve the priority class.
+    dwPriorityClass = 0;
+    hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pe32.th32ProcessID);
+    if (hProcess == NULL) {
+      printError(TEXT("OpenProcess"));
+    } else {
+      dwPriorityClass = GetPriorityClass(hProcess);
+      if(!dwPriorityClass)
+      printError(TEXT("GetPriorityClass"));
+      CloseHandle(hProcess);
+    }
+
+    if (pe32.th32ParentProcessID == root) {
+      ret[retCount] = (int) pe32.th32ParentProcessID;
+      retCount++;
+      printf("\n\n\n\n\n%s\n\n\n\n\n\n", "Found match");
+    }
+
+    _tprintf( TEXT("\n  Process ID        = 0x%08X"), pe32.th32ProcessID );
+    _tprintf( TEXT("\n  Thread count      = %d"),   pe32.cntThreads );
+    _tprintf( TEXT("\n  Parent process ID = 0x%08X"), pe32.th32ParentProcessID );
+    _tprintf( TEXT("\n  Priority base     = %d"), pe32.pcPriClassBase );
+    if( dwPriorityClass )
+    _tprintf( TEXT("\n  Priority class    = %d"), dwPriorityClass );
+
+    // List the modules and threads associated with this process
+    // ListProcessModules( pe32.th32ProcessID );
+    // ListProcessThreads( pe32.th32ProcessID );
+
+  } while(Process32Next(hProcessSnap, &pe32));
+
+  printf("\n\n\n\n%s\n%i\n\n%s%i\n\n", "Found this first child", ret[0], "Total: ", retCount);
+
+  CloseHandle(hProcessSnap);
+  return ret;
+}
+
+uint32_t uv_get_children_count(DWORD ppid) {
+  return 0;
+}
 
 int uv_os_homedir(char* buffer, size_t* size) {
   uv_passwd_t pwd;
