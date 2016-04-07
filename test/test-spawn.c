@@ -659,8 +659,6 @@ TEST_IMPL(spawn_and_kill) {
 TEST_IMPL(spawn_observe_and_kill) {
   int r;
   int ret;
-  static uv_process_t process_2;
-  static uv_timer_t timer_2;
 #ifndef _WIN32
   pid_t p;
 #else
@@ -671,10 +669,6 @@ TEST_IMPL(spawn_observe_and_kill) {
 
   p = getpid();
   ASSERT(p > 0);
-
-  ret = uv_get_children_count(p, &pc_sample_1);
-  ASSERT(ret == 0);
-  ASSERT(pc_sample_1 == 0);
 
   ret = uv_get_children_pid(p, &par_sample, &pc_sample_1);
   ASSERT(ret == 0);
@@ -689,10 +683,7 @@ TEST_IMPL(spawn_observe_and_kill) {
   r = uv_timer_init(uv_default_loop(), &timer);
   ASSERT(r == 0);
 
-  ret = uv_get_children_count(p, &pc_sample_2);
-  ASSERT(ret == 0);
   ret = uv_get_children_pid(p, &par_sample, &pc_sample_2);
-  printf("From above: %i\n", par_sample[1]);
   ASSERT(ret == 0);
 
   /* should have observed two more child processes then before */
@@ -707,7 +698,8 @@ TEST_IMPL(spawn_observe_and_kill) {
   ASSERT(exit_cb_called == 1);
   ASSERT(close_cb_called == 2); /* Once for process and once for timer. */
 
-  r = uv_get_children_count(p, &pc_sample_3);
+  ret = uv_get_children_pid(p, &par_sample, &pc_sample_3);
+  ASSERT(ret == 0);
   ASSERT(r == 0);
 
   /* should be zero again */
