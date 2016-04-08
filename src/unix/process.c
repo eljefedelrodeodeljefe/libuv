@@ -29,6 +29,14 @@
 
 #include <sys/types.h>
 #include <sys/wait.h>
+#if defined(__APPLE__)    || \
+    defined(__NetBSD__)   || \
+    defined(__OpenBSD__)  || \
+    defined(__FreeBSD__)  || \
+    defined(__DragonFly__)
+#include <sys/sysctl.h>
+#include <pwd.h>
+#endif
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -383,30 +391,64 @@ static void uv__process_child_init(const uv_process_options_t* options,
 #endif
 
 int uv_get_children_pid(pid_t ppid, uint32_t** p_ar_ptr, int* p_ar_len_ptr) {
-  char *buf = malloc(sizeof(*buf) * 1024);
-  size_t len = 255;
-  char command[256] = {0};
-  FILE *fp;
+  int ret, proc_count, i, j;
+  uint32_t subj;
   uint32_t* temp = uv__malloc(0);
-  *p_ar_ptr = NULL;
+  struct kinfo_proc *proc_list = NULL;
+  size_t length = 0;
 
+#if defined(__APPLE__)    || \
+    defined(__NetBSD__)   || \
+    defined(__OpenBSD__)  || \
+    defined(__FreeBSD__)  || \
+    defined(__DragonFly__)
+  /* ref:
+     http://unix.superglobalmegacorp.com/Net2/newsrc/sys/kinfo_proc.h.html */
+  static const int name[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+
+  *p_ar_ptr = NULL;
   *p_ar_len_ptr = 0;
 
-  sprintf(command,"pgrep -P %u",ppid);
-  fp = (FILE*)popen(command,"r");
+  /* Call sysctl with a NULL buffer to get proper length */
+  ret = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, NULL, &length, NULL, 0);
+  if (ret) return 1;
 
-  while(getline(&buf, &len, fp) >= 0) {
-    /* realloc malloc(0) to get the actual array */
-    uv__realloc(temp, (*p_ar_len_ptr + 1) * sizeof(uint32_t));
+  proc_list = malloc(length);
+  if (!proc_list) return 1;
 
-    temp[*p_ar_len_ptr] = atoi(buf);
-    (*p_ar_len_ptr)++;
+  /* Get the actual process list */
+  ret = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, proc_list, &length, NULL, 0);
+  if (ret) return 1;
+
+  proc_count = length / sizeof(struct kinfo_proc);
+
+  /* iterate though whole proc_list */
+  for (i = 0; i < proc_count; i++) {
+    /* determine per process, whether its parent is already
+     * in result set or or is the current pid
+     */
+    subj = (uint32_t) proc_list[i].kp_eproc.e_ppid;
+    for (j = 0; j < *p_ar_len_ptr + 1; j++) {
+      /* if parent is in result or ppid, push pid to array; increase counter */
+      if (subj == (uint32_t) ppid || (subj == temp[j] && temp[j] != 0)) {
+        /* then push */
+        uv__realloc(temp, (*p_ar_len_ptr + 1) * sizeof(uint32_t));
+        temp[*p_ar_len_ptr] = (uint32_t)proc_list[i].kp_proc.p_pid;
+
+        (*p_ar_len_ptr)++;
+        goto pushed_array; /* also bail early */
+      }
+      /* repeat this in next iteration with an increased array */
+    }
+    pushed_array: true;
   }
 
-  *p_ar_ptr = temp;
+  free(proc_list);
+#elif defined(__linux__)
+#endif
 
-  uv__free(buf);
-  pclose(fp);
+  *p_ar_ptr = temp;
+  free(temp);
   return 0;
 }
 
