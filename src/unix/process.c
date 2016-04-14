@@ -436,11 +436,10 @@ int uv_get_children_pid(pid_t ppid, uint32_t** p_ar_ptr, int* p_ar_len_ptr) {
         temp[*p_ar_len_ptr] = (uint32_t)proc_list[i].kp_proc.p_pid;
 
         (*p_ar_len_ptr)++;
-        goto pushed_array; /* also bail early */
+        break; /* also bail early */
       }
       /* repeat this in next iteration with an increased array */
     }
-    pushed_array: true;
   }
 
   free(proc_list);
