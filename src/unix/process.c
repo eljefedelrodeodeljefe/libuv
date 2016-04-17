@@ -391,42 +391,38 @@ static void uv__process_child_init(const uv_process_options_t* options,
 #endif
 
 int uv_get_children_pid(pid_t ppid, uint32_t** p_ar_ptr, int* p_ar_len_ptr) {
-  int ret, proc_count, i, j;
-  uint32_t subj;
   uint32_t* temp = uv__malloc(0);
-  struct kinfo_proc *proc_list = NULL;
-  size_t length = 0;
+  size_t len = 0;
 
 #if defined(__APPLE__)    || \
     defined(__NetBSD__)   || \
     defined(__OpenBSD__)  || \
     defined(__FreeBSD__)  || \
     defined(__DragonFly__)
+  struct kinfo_proc *proc_list = NULL;
+  int ret, proc_count, i, j;
+  uint32_t subj;
   /* ref:
      http://unix.superglobalmegacorp.com/Net2/newsrc/sys/kinfo_proc.h.html */
   static const int name[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
 
   *p_ar_ptr = NULL;
   *p_ar_len_ptr = 0;
-
-  /* Call sysctl with a NULL buffer to get proper length */
-  ret = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, NULL, &length, NULL, 0);
+  /* get number of total processes for subsquent calls */
+  ret = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, NULL, &len, NULL, 0);
   if (ret) return 1;
 
-  proc_list = malloc(length);
+  proc_list = malloc(len);
   if (!proc_list) return 1;
-
-  /* Get the actual process list */
-  ret = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, proc_list, &length, NULL, 0);
+  /* get the process list */
+  ret = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, proc_list, &len, NULL, 0);
   if (ret) return 1;
 
-  proc_count = length / sizeof(struct kinfo_proc);
-
+  proc_count = len / sizeof(struct kinfo_proc);
   /* iterate though whole proc_list */
   for (i = 0; i < proc_count; i++) {
     /* determine per process, whether its parent is already
-     * in result set or or is the current pid
-     */
+     * in result set or or is the current pid */
     subj = (uint32_t) proc_list[i].kp_eproc.e_ppid;
     for (j = 0; j < *p_ar_len_ptr + 1; j++) {
       /* if parent is in result or ppid, push pid to array; increase counter */
@@ -437,38 +433,31 @@ int uv_get_children_pid(pid_t ppid, uint32_t** p_ar_ptr, int* p_ar_len_ptr) {
 
         (*p_ar_len_ptr)++;
         break; /* also bail early */
-      }
-      /* repeat this in next iteration with an increased array */
+      } /* repeat this in next iteration with an increased array */
     }
   }
-
   free(proc_list);
+
 #elif defined(__linux__)
-  char *buf = malloc(sizeof(*buf) * 1024);
-  size_t len = 255;
-  char command[256] = {0};
-  FILE *fp;
-  uint32_t* temp = uv__malloc(0);
+  char *line = NULL;
+  char proc_p[256] = {0};
+  int *fp;
+
   *p_ar_ptr = NULL;
-
   *p_ar_len_ptr = 0;
+  /* Rationale: children are defined in thread with sames ID of process -> read,
+   * check line endings, count, build array, return */
+  sprintf(proc_p, "/proc/%u/task/%u/children", ppid, ppid);
+  fp = fopen(proc_p,"r");
+  if (fp == NULL)
+    return 127;
 
-  sprintf(command,"pgrep -P %u",ppid);
-  fp = (FILE*)popen(command,"r");
-
-  while(getline(&buf, &len, fp) >= 0) {
-    /* realloc malloc(0) to get the actual array */
-    uv__realloc(temp, (*p_ar_len_ptr + 1) * sizeof(uint32_t));
-
-    temp[*p_ar_len_ptr] = atoi(buf);
-    (*p_ar_len_ptr)++;
+  while (getline(&line, &len, fp) >= 0) {
+     uv__realloc(temp, (*p_ar_len_ptr + 1) * sizeof(uint32_t));
+     temp[*p_ar_len_ptr] = atoi(line);
+     (*p_ar_len_ptr)++;
   }
-
-  *p_ar_ptr = temp;
-
-  uv__free(buf);
-  pclose(fp);
-return 0;
+  uv__close(fp);
 #endif
 
   *p_ar_ptr = temp;
