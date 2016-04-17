@@ -390,6 +390,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
 }
 #endif
 
+
 int uv_get_children_pid(pid_t ppid, uint32_t** proc_list, int* proc_count) {
   uint32_t* temp = uv__malloc(0);
   size_t len = 0;
@@ -400,15 +401,14 @@ int uv_get_children_pid(pid_t ppid, uint32_t** proc_list, int* proc_count) {
     defined(__FreeBSD__)  || \
     defined(__DragonFly__)
   struct kinfo_proc *p_list = NULL;
-  int ret, p_count, i, j;
-  uint32_t subj;
+  int ret, p_count, i;
   /* ref:
      http://unix.superglobalmegacorp.com/Net2/newsrc/sys/kinfo_proc.h.html */
   static const int name[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
 
   *proc_list = NULL;
   *proc_count = 0;
-  /* get number of total processes for subsquent calls */
+  /* get number of total processes for subsequent calls */
   ret = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, NULL, &len, NULL, 0);
   if (ret) return 1;
 
@@ -421,20 +421,13 @@ int uv_get_children_pid(pid_t ppid, uint32_t** proc_list, int* proc_count) {
   p_count = len / sizeof(struct kinfo_proc);
   /* iterate though whole p_list */
   for (i = 0; i < p_count; i++) {
-    /* determine per process, whether its parent is already
-     * in result set or or is the current pid */
-    subj = (uint32_t) p_list[i].kp_eproc.e_ppid;
-    for (j = 0; j < *proc_count + 1; j++) {
-      /* if parent is in result or ppid, push pid to array; increase counter */
-      if (subj == (uint32_t) ppid || (subj == temp[j] && temp[j] != 0)) {
-        /* then push */
-        uv__realloc(temp, (*proc_count + 1) * sizeof(uint32_t));
-        temp[*proc_count] = (uint32_t)p_list[i].kp_proc.p_pid;
+   /* if parent is ppid, push pid to array; increase counter */
+   if ((uint32_t) p_list[i].kp_eproc.e_ppid == (uint32_t) ppid) {
+     uv__realloc(temp, (*proc_count + 1) * sizeof(uint32_t));
+     temp[*proc_count] = (uint32_t)p_list[i].kp_proc.p_pid;
 
-        (*proc_count)++;
-        break; /* also bail early */
-      } /* repeat this in next iteration with an increased array */
-    }
+     (*proc_count)++;
+   }
   }
   free(p_list);
 
