@@ -1213,9 +1213,6 @@ int uv_get_children_pid(DWORD ppid, uint32_t** p_ar_ptr, int* p_ar_len_ptr) {
   return 0;
 }
 
-uint32_t uv_get_children_count(DWORD ppid) {
-  return 0;
-}
 
 int uv_os_homedir(char* buffer, size_t* size) {
   uv_passwd_t pwd;
